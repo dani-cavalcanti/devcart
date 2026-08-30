@@ -1,0 +1,33 @@
+server:
+  port: 8761
+
+spring:
+  application:
+    name: discovery-server
+  cloud:
+    # Boot 3.4.x + Spring Cloud 2023.0.x esta fora da matriz oficialmente testada;
+    # o projeto assume essa combinacao conscientemente.
+    compatibility-verifier:
+      enabled: false
+
+eureka:
+  instance:
+    hostname: localhost
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: http://${eureka.instance.hostname}:${server.port}/eureka/
+
+# Observabilidade / tracing distribuido (Micrometer Observation + Tracing -> Zipkin)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}

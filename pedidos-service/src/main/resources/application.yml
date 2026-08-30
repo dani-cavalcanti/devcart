@@ -1,0 +1,75 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: pedidos-service
+
+  datasource:
+    url: ${POSTGRES_URL:jdbc:postgresql://localhost:5432/pedidos}
+    username: ${POSTGRES_USER:pedidos}
+    password: ${POSTGRES_PASSWORD:pedidos}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+  cloud:
+    # Boot 3.4.x + Spring Cloud 2023.0.x fora da matriz oficialmente testada (assumido).
+    compatibility-verifier:
+      enabled: false
+    openfeign:
+      client:
+        config:
+          catalogo-service:
+            connect-timeout: 2000
+            read-timeout: 2000
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka/}
+
+# Resiliencia da comunicacao sincrona com o catalogo-service.
+resilience4j:
+  circuitbreaker:
+    instances:
+      catalogo:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+  timelimiter:
+    instances:
+      catalogo:
+        timeout-duration: 2s        # timeout estrito de 2 segundos
+        cancel-running-future: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers,circuitbreakerevents
+  health:
+    circuitbreakers:
+      enabled: true
+  # Micrometer Observation + Micrometer Tracing (bridge Brave) -> Zipkin
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}

@@ -1,0 +1,9 @@
+**/target/
+**/*.iml
+.git/
+.idea/
+.gitignore
+README.md
+LICENSE
+docker-compose*.yml
+**/.DS_Store
