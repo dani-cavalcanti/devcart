@@ -86,7 +86,8 @@ public class PedidoService {
         try {
             return catalogoClientService.buscarProduto(produtoId).join();
         } catch (CompletionException ex) {
-            Throwable causa = ex.getCause() != null ? ex.getCause() : ex;
+            // join() sempre embrulha a falha com a causa real preenchida.
+            Throwable causa = ex.getCause();
             if (causa instanceof CatalogoIndisponivelException cie) {
                 throw cie;
             }

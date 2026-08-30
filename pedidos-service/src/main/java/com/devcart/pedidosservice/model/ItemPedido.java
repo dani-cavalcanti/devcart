@@ -40,6 +40,14 @@ public class ItemPedido {
     }
 
     public ItemPedido(String produtoId, String nomeProduto, int quantidade, BigDecimal precoUnitario) {
+        if (quantidade <= 0) {
+            throw new IllegalArgumentException(
+                    "quantidade do item deve ser maior que zero, mas foi " + quantidade);
+        }
+        if (precoUnitario == null || precoUnitario.signum() < 0) {
+            throw new IllegalArgumentException(
+                    "precoUnitario do item nao pode ser nulo nem negativo, mas foi " + precoUnitario);
+        }
         this.produtoId = produtoId;
         this.nomeProduto = nomeProduto;
         this.quantidade = quantidade;

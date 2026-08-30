@@ -1,0 +1,13 @@
+# Build output
+target/
+build/
+
+# jqwik failure-replay database (local)
+.jqwik-database
+
+# Logs / OS
+*.log
+.DS_Store
+
+# Local env files
+*.local.env
