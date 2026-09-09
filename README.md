@@ -17,15 +17,17 @@ Simular um fluxo de compra ponta a ponta:
 3. O pedido é fechado: o serviço de pedidos **consulta o catálogo em tempo real** (preço/estoque), **persiste** o pedido e **publica um evento** para processamento assíncrono (pagamento, separação, notificação — fora do escopo atual).
 
 ### Objetivo didático (o foco real)
-Servir de alvo para técnicas de teste que vão **além da cobertura de linha**:
+Servir de alvo para técnicas de teste e para análise de qualidade:
 
 | Técnica | Ferramenta | O que ataca |
 |---|---|---|
-| **Teste de mutação** | [PITest](https://pitest.org/) | Cobertura "verde" que não mata mutantes → asserts fracos, testes que só exercitam o código |
-| **Property-based testing** | [jqwik](https://jqwik.net/) | Casos de borda que exemplos escolhidos a dedo não cobrem (valores negativos, coleções vazias, overflow de `BigDecimal`, etc.) |
-| **Testes de contrato** | [Pact JVM](https://docs.pact.io/) | Integração entre `pedidos-service` (consumer) e `catalogo-service` (provider) que "passa" em mocks mas quebra em produção |
+| **Testes unitários** | [JUnit 5](https://junit.org/junit5/) + [Mockito](https://site.mockito.org/) + [AssertJ](https://assertj.github.io/doc/) | Regras de negócio das camadas `service` e `model` isoladas de Spring/infra |
+| **Cobertura** | [JaCoCo](https://www.jacoco.org/jacoco/) | Gate de 100 % de linha + ramo por classe (camadas de entrada/infra ficam fora do escopo) |
+| **Análise estática** | [SonarQube](https://www.sonarsource.com/products/sonarqube/) | Bugs, code smells e cobertura consolidada do multi-módulo |
+| **Property-Based** (`-Ppbt`) | [jqwik](https://jqwik.net/) | Edge cases que a cobertura "verde" não pega — motor de cálculo/validação de pedidos |
+| **Contrato** (`-Pcontract`) | [Pact JVM](https://docs.pact.io/) | Compatibilidade `pedidos-service` × `catalogo-service` sem subir os dois juntos |
 
-> **Status atual:** o esqueleto funcional dos 5 módulos + infraestrutura está pronto. As suítes PITest / jqwik / Pact ainda **não** foram adicionadas — são o próximo passo e a razão de ser do repositório.
+> **Status atual:** esqueleto dos 5 módulos + infraestrutura; suíte unitária JUnit dos 3 serviços de negócio com 100 % de cobertura (JaCoCo/Sonar); gate de property-based (jqwik, `-Ppbt`) e de contrato (Pact JVM, `-Pcontract`) no `pedidos-service` ↔ `catalogo-service`.
 
 ---
 
@@ -92,7 +94,7 @@ flowchart TB
 | Observabilidade | Micrometer Observation, Micrometer Tracing (Brave), `zipkin-reporter-brave`, **Zipkin** |
 | Validação | Jakarta Bean Validation (`@Valid`, `@NotNull`, `@NotBlank`, `@Positive`, …) |
 | Containerização | Docker (multi-stage, runtime `eclipse-temurin:21-jdk-alpine`) + Docker Compose |
-| **Testes (planejado)** | JUnit 5, **PITest** (mutação), **jqwik** (property-based), **Pact JVM** (contratos) |
+| **Testes / Qualidade** | **JUnit 5** + **Mockito** + **AssertJ**, **JaCoCo** (gate 100 %), **SonarQube** |
 
 ---
 
@@ -310,16 +312,63 @@ devcart/
 
 ---
 
-## Estratégia de testes (roadmap)
+## Estratégia de testes — 4 gates
 
-O código é o "paciente"; os testes são o experimento. A ideia é, para cada serviço:
+Material da palestra: **`apresentacao/index.html`** (roteiro com falas, cheat sheet de comandos,
+Q&A técnico). Runbook do palco: **`./demo/demo.sh`**.
 
-1. Escrever testes tradicionais até atingir cobertura de linha ~100 % (JaCoCo).
-2. Rodar **PITest** e mostrar o *mutation score* real — tipicamente muito abaixo de 100 %.
-3. Introduzir **jqwik** para propriedades (ex.: "o `valorTotal` do pedido é sempre a soma dos subtotais", "adicionar e remover N itens devolve o carrinho ao estado inicial").
-4. Introduzir **Pact JVM** entre `pedidos-service` (consumer) e `catalogo-service` (provider) e provocar uma quebra de contrato que os testes de unidade com mock não detectam.
+O `pedidos-service` (motor de cálculo) tem dois estados de código, alternados por
+`./demo/demo.sh regressao | corrigido`:
 
-> Nada disso está commitado ainda — os módulos hoje contêm apenas o `spring-boot-starter-test`. Contribuições nessa direção são o objetivo do projeto.
+- **`regressao`** — o que uma IA plausivelmente entrega: 100 % de cobertura, `mvn verify` verde,
+  SonarQube 0 bugs — e **6 defeitos** de lógica no domínio.
+- **`corrigido`** — os 6 defeitos consertados; os gates 2–4 passam a barrar a regressão.
+
+| # | Gate | Comando | `regressao` | `corrigido` |
+|---|---|---|---|---|
+| 1 | **Cobertura** (JaCoCo + Sonar) | `mvn verify` | verde · 87 testes · Line/Branch 100 % · Sonar 0 bugs | idêntico |
+| 2 | **Mutação** (PITest) | `mvn -pl pedidos-service verify -Ppitest` | **BUILD FAILURE** · 44/45 = 98 % · 1 sobrevive em `ItemPedido:44` | verde · 47/47 = 100 % |
+| 3 | **Property-Based** (jqwik) | `mvn -pl pedidos-service verify -Ppbt` | **BUILD FAILURE** · 6 counterexamples (com *shrinking*) | verde · 48/48 |
+| 4 | **Contrato** (Pact JVM) | `mvn verify -Pcontract` | verde · consumer gera pact → provider verifica `200 OK` + corpo | verde |
+
+Base: `JUnit 5 + Mockito + AssertJ`, sem contexto Spring, camadas `service` e `model`. Os 3 gates
+avançados ficam fora da suíte padrão (`@Tag("pbt")` / `@Tag("contract")` + `surefire.excludedGroups`);
+cada `-P<perfil>` libera o seu. Fora do escopo de cobertura: `*Application`, `controller/`, `client/`,
+`api-gateway`, `discovery-server`.
+
+### Os 6 defeitos plantados (estado `regressao`)
+
+| Classe | Defeito | Pego por |
+|---|---|---|
+| `ItemPedido` | guarda `quantidade < 0` (deveria `<= 0`) | **PITest** (mutante vivo) + **jqwik** (`quantidade = 0`) |
+| `ItemPedido` | guarda de preço só checa `null` | jqwik (`preco = -1E-30`) |
+| `Pedido` | `recalcularTotal()` acumula em vez de resetar | jqwik (não idempotente) |
+| `ItemPedidoResponse` | `fromEntity` troca `precoUnitario` ↔ `subtotal` | jqwik (`q=2` distingue os campos) |
+| `PedidoCriadoEvent` | `fromEntity` usa nº de linhas, não a soma | jqwik (1 linha `q=2` → evento diz `1`) |
+| `PedidoService` | valida estoque linha a linha, sem somar o produto | jqwik (`estoque=2`, pedido `[1, 2]`) |
+
+> **Mutação encontra teste fraco; property-based encontra especificação ausente; contrato encontra
+> quebra de integração.** As três medem eficácia — não execução.
+
+### Contrato — detalhe
+
+`pedidos-service` (consumer) × `catalogo-service` (provider) em `GET /produtos/{id}`, sem subir os
+dois juntos. Consumer: `client/CatalogoContractTest` (mock server + o `CatalogoFeignClient` real →
+gera `target/pacts/*.json`). Provider: `contract/CatalogoProviderContractTest` (`@SpringBootTest`
+porta aleatória, `ProdutoService` mockado por `@State`, replaya cada interação). O pact é versionado
+em `catalogo-service/src/test/resources/pacts/`; em produção um **Pact Broker** + `can-i-deploy`
+barram o par incompatível.
+
+### SonarQube (opcional, local)
+
+```bash
+docker start devcart-sonar     # http://localhost:9000
+mvn -DskipTests verify sonar:sonar -Dsonar.token=SEU_TOKEN -Dsonar.projectKey=devcart
+```
+
+### Próximas etapas (a inserir)
+
+- **Pytest** — camada de verificação end-to-end / smoke entre serviços.
 
 ---
 

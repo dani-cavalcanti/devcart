@@ -32,6 +32,35 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-cloud.version>2023.0.4</spring-cloud.version>
+
+        <!-- Testes de contrato -->
+        <pact.version>4.6.14</pact.version>
+
+        <!-- Teste de mutacao -->
+        <pitest-maven.version>1.19.1</pitest-maven.version>
+        <pitest-junit5.version>1.2.2</pitest-junit5.version>
+
+        <!-- Cobertura / analise estatica -->
+        <jacoco.version>0.8.15</jacoco.version>
+        <sonar-maven-plugin.version>5.1.0.4751</sonar-maven-plugin.version>
+        <!-- Preenchido pelo jacoco:prepare-agent; default vazio evita @{...} nao resolvido. -->
+        <jacocoArgLine/>
+        <!-- Suite padrao NAO executa os testes @Tag("pbt") nem @Tag("contract").
+             Perfis: -Ppbt (property-based) e -Pcontract (Pact JVM) liberam cada um. -->
+        <surefire.excludedGroups>pbt,contract</surefire.excludedGroups>
+        <sonar.host.url>http://localhost:9000</sonar.host.url>
+        <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <sonar.junit.reportPaths>${project.basedir}/target/surefire-reports</sonar.junit.reportPaths>
+        <!-- Fora do calculo de cobertura (espelha os excludes do JaCoCo): camadas de
+             entrada/infra e modulos ainda sem suite. Continuam sob analise de qualidade. -->
+        <sonar.coverage.exclusions>
+            **/*Application.java,
+            **/controller/**,
+            **/client/**,
+            **/config/**,
+            **/apigateway/**,
+            **/discoveryserver/**
+        </sonar.coverage.exclusions>
     </properties>
 
     <dependencyManagement>
@@ -75,6 +104,113 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+
+        <plugins>
+            <!-- Instrumentacao de cobertura: agente em prepare-agent, relatorio (HTML+XML) em test,
+                 gate de 100% Line por classe em verify. Camadas de infra/entrada ficam de fora. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*Application.class</exclude>
+                        <exclude>**/controller/**</exclude>
+                        <exclude>**/client/**</exclude>
+                        <exclude>com/devcart/apigateway/**</exclude>
+                        <exclude>com/devcart/discoveryserver/**</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <propertyName>jacocoArgLine</propertyName>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>CLASS</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.00</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.00</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- argLine combina o agente JaCoCo + flags p/ Mockito/ByteBuddy em JDKs recentes. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{jacocoArgLine} -Dnet.bytebuddy.experimental=true -XX:+EnableDynamicAgentLoading -Xshare:off</argLine>
+                    <excludedGroups>${surefire.excludedGroups}</excludedGroups>
+                </configuration>
+            </plugin>
+
+            <!-- Report HTML da execucao (mostra as falhas do jqwik):
+                 mvn -pl pedidos-service test surefire-report:report-only -Ppbt
+                 -> pedidos-service/target/reports/surefire.html -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-report-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+
+            <!-- Analise SonarQube: mvn -Psonar verify sonar:sonar -Dsonar.token=... -->
+            <plugin>
+                <groupId>org.sonarsource.scanner.maven</groupId>
+                <artifactId>sonar-maven-plugin</artifactId>
+                <version>${sonar-maven-plugin.version}</version>
+            </plugin>
+        </plugins>
     </build>
+
+    <profiles>
+        <!-- Property-Based Testing (jqwik, @Tag("pbt")). Uso no PR/CI:  mvn verify -Ppbt -->
+        <profile>
+            <id>pbt</id>
+            <properties>
+                <surefire.excludedGroups>contract</surefire.excludedGroups>
+            </properties>
+        </profile>
+
+        <!-- Testes de contrato (Pact JVM, @Tag("contract")). Uso no PR/CI:  mvn verify -Pcontract -->
+        <profile>
+            <id>contract</id>
+            <properties>
+                <surefire.excludedGroups>pbt</surefire.excludedGroups>
+            </properties>
+        </profile>
+    </profiles>
 
 </project>

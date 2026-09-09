@@ -1,6 +1,8 @@
 package com.devcart.pedidosservice.service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletionException;
 
 import org.springframework.context.ApplicationEventPublisher;
@@ -42,19 +44,27 @@ public class PedidoService {
     public PedidoResponse criarPedido(String usuarioId, CriarPedidoRequest request) {
         String dono = validarUsuario(usuarioId);
 
-        Pedido pedido = new Pedido(dono);
+        // O mesmo produto pode aparecer em varias linhas: consolida a quantidade
+        // total pedida por produto ANTES de validar o estoque.
+        Map<String, Integer> quantidadePorProduto = new LinkedHashMap<>();
         for (ItemPedidoRequest itemReq : request.itens()) {
-            ProdutoDto produto = consultarProduto(itemReq.produtoId());
+            quantidadePorProduto.merge(itemReq.produtoId(), itemReq.quantidade(), Integer::sum);
+        }
 
-            if (produto.estoque() == null || produto.estoque() < itemReq.quantidade()) {
+        Pedido pedido = new Pedido(dono);
+        for (Map.Entry<String, Integer> linha : quantidadePorProduto.entrySet()) {
+            int quantidadeTotal = linha.getValue();
+            ProdutoDto produto = consultarProduto(linha.getKey());
+
+            if (produto.estoque() == null || produto.estoque() < quantidadeTotal) {
                 throw new RegraNegocioException(
-                        "Estoque insuficiente para o produto " + itemReq.produtoId());
+                        "Estoque insuficiente para o produto " + linha.getKey());
             }
 
             pedido.adicionarItem(new ItemPedido(
                     produto.id(),
                     produto.nome(),
-                    itemReq.quantidade(),
+                    quantidadeTotal,
                     produto.preco()));
         }
         pedido.recalcularTotal();

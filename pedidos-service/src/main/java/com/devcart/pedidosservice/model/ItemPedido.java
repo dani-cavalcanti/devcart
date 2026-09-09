@@ -40,6 +40,7 @@ public class ItemPedido {
     }
 
     public ItemPedido(String produtoId, String nomeProduto, int quantidade, BigDecimal precoUnitario) {
+        // Guarda de dominio: quantidade estritamente positiva e preco nao-nulo e nao-negativo.
         if (quantidade <= 0) {
             throw new IllegalArgumentException(
                     "quantidade do item deve ser maior que zero, mas foi " + quantidade);
@@ -84,5 +85,11 @@ public class ItemPedido {
 
     public BigDecimal getPrecoUnitario() {
         return precoUnitario;
+    }
+
+    @Override
+    public String toString() {
+        return "ItemPedido{produtoId='" + produtoId + "', quantidade=" + quantidade
+                + ", precoUnitario=" + precoUnitario + "}";
     }
 }

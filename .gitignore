@@ -2,12 +2,20 @@
 target/
 build/
 
-# jqwik failure-replay database (local)
-.jqwik-database
-
 # Logs / OS
 *.log
 .DS_Store
 
+# Office / editores — arquivos de lock e temporarios
+~$*
+*.tmp
+
 # Local env files
 *.local.env
+
+# jqwik failure-replay database (local)
+.jqwik-database
+
+# Material da palestra — privado / local, nao faz parte do projeto
+/apresentacao/
+/demo/
