@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.devcart</groupId>
+    <artifactId>devcart-parent</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>devcart-parent</name>
+    <description>DevCart - Maven Multi-Module (Java 21, Spring Boot 3.4+, Spring Cloud 2023.x)</description>
+
+    <modules>
+        <module>discovery-server</module>
+        <module>api-gateway</module>
+        <module>catalogo-service</module>
+        <module>carrinho-service</module>
+        <module>pedidos-service</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-cloud.version>2023.0.4</spring-cloud.version>
+
+        <!-- Testes de contrato -->
+        <pact.version>4.6.14</pact.version>
+
+        <!-- Teste de mutacao -->
+        <pitest-maven.version>1.19.1</pitest-maven.version>
+        <pitest-junit5.version>1.2.2</pitest-junit5.version>
+
+        <!-- Cobertura / analise estatica -->
+        <jacoco.version>0.8.15</jacoco.version>
+        <sonar-maven-plugin.version>5.1.0.4751</sonar-maven-plugin.version>
+        <!-- Preenchido pelo jacoco:prepare-agent; default vazio evita @{...} nao resolvido. -->
+        <jacocoArgLine/>
+        <!-- Suite padrao NAO executa os testes @Tag("pbt") nem @Tag("contract").
+             Perfis: -Ppbt (property-based) e -Pcontract (Pact JVM) liberam cada um. -->
+        <surefire.excludedGroups>pbt,contract</surefire.excludedGroups>
+        <sonar.host.url>http://localhost:9000</sonar.host.url>
+        <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <sonar.junit.reportPaths>${project.basedir}/target/surefire-reports</sonar.junit.reportPaths>
+        <!-- Fora do calculo de cobertura (espelha os excludes do JaCoCo): camadas de
+             entrada/infra e modulos ainda sem suite. Continuam sob analise de qualidade. -->
+        <sonar.coverage.exclusions>
+            **/*Application.java,
+            **/controller/**,
+            **/client/**,
+            **/config/**,
+            **/apigateway/**,
+            **/discoveryserver/**
+        </sonar.coverage.exclusions>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!--
+      Dependencias herdadas por TODOS os modulos.
+      Observabilidade: Micrometer Observation (via actuator) + Micrometer Tracing
+      (bridge Brave) exportando Trace ID / Span ID para o Zipkin.
+    -->
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.zipkin.reporter2</groupId>
+            <artifactId>zipkin-reporter-brave</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+
+        <plugins>
+            <!-- Instrumentacao de cobertura: agente em prepare-agent, relatorio (HTML+XML) em test,
+                 gate de 100% Line por classe em verify. Camadas de infra/entrada ficam de fora. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*Application.class</exclude>
+                        <exclude>**/controller/**</exclude>
+                        <exclude>**/client/**</exclude>
+                        <exclude>com/devcart/apigateway/**</exclude>
+                        <exclude>com/devcart/discoveryserver/**</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <propertyName>jacocoArgLine</propertyName>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>CLASS</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.00</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>1.00</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- argLine combina o agente JaCoCo + flags p/ Mockito/ByteBuddy em JDKs recentes. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{jacocoArgLine} -Dnet.bytebuddy.experimental=true -XX:+EnableDynamicAgentLoading -Xshare:off</argLine>
+                    <excludedGroups>${surefire.excludedGroups}</excludedGroups>
+                </configuration>
+            </plugin>
+
+            <!-- Report HTML da execucao (mostra as falhas do jqwik):
+                 mvn -pl pedidos-service test surefire-report:report-only -Ppbt
+                 -> pedidos-service/target/reports/surefire.html -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-report-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+
+            <!-- Analise SonarQube: mvn -Psonar verify sonar:sonar -Dsonar.token=... -->
+            <plugin>
+                <groupId>org.sonarsource.scanner.maven</groupId>
+                <artifactId>sonar-maven-plugin</artifactId>
+                <version>${sonar-maven-plugin.version}</version>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Property-Based Testing (jqwik, @Tag("pbt")). Uso no PR/CI:  mvn verify -Ppbt -->
+        <profile>
+            <id>pbt</id>
+            <properties>
+                <surefire.excludedGroups>contract</surefire.excludedGroups>
+            </properties>
+        </profile>
+
+        <!-- Testes de contrato (Pact JVM, @Tag("contract")). Uso no PR/CI:  mvn verify -Pcontract -->
+        <profile>
+            <id>contract</id>
+            <properties>
+                <surefire.excludedGroups>pbt</surefire.excludedGroups>
+            </properties>
+        </profile>
+    </profiles>
+
+</project>

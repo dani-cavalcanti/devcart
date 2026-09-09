@@ -1,0 +1,149 @@
+name: devcart
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Service Discovery (Eureka) - unico modulo da aplicacao neste compose.
+  # Imagem de runtime: eclipse-temurin:21-jdk-alpine (ver discovery-server/Dockerfile)
+  # ---------------------------------------------------------------------------
+  discovery-server:
+    build:
+      context: .
+      dockerfile: discovery-server/Dockerfile
+    image: devcart/discovery-server:latest
+    container_name: devcart-discovery-server
+    ports:
+      - "8761:8761"
+    environment:
+      # Exporta os spans para o container do Zipkin (sobrescreve o default localhost)
+      MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+    depends_on:
+      zipkin:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - devcart-net
+
+  # ---------------------------------------------------------------------------
+  # MongoDB - catalogo-service
+  # ---------------------------------------------------------------------------
+  mongodb:
+    image: mongo:7
+    container_name: devcart-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: catalogo
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - devcart-net
+
+  # ---------------------------------------------------------------------------
+  # Redis - carrinho-service
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: devcart-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - devcart-net
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL - pedidos-service
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: devcart-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: pedidos
+      POSTGRES_USER: pedidos
+      POSTGRES_PASSWORD: pedidos
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pedidos -d pedidos"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - devcart-net
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ + plugin de gerenciamento - pedidos-service (fila pedidos.criados)
+  #   5672  -> AMQP
+  #   15672 -> console web (guest/guest)
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: devcart-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - devcart-net
+
+  # ---------------------------------------------------------------------------
+  # Zipkin - coletor de tracing distribuido.
+  # Os microsservicos usam Micrometer Observation + Micrometer Tracing (bridge
+  # Brave) + zipkin-reporter-brave e enviam Trace ID / Span ID para c:
+  #   management.zipkin.tracing.endpoint = http://localhost:9411/api/v2/spans
+  # (dentro da rede compose: http://zipkin:9411/api/v2/spans)
+  # UI: http://localhost:9411
+  # ---------------------------------------------------------------------------
+  zipkin:
+    image: openzipkin/zipkin:3
+    container_name: devcart-zipkin
+    ports:
+      - "9411:9411"
+    environment:
+      STORAGE_TYPE: mem
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9411/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - devcart-net
+
+volumes:
+  mongo-data:
+  redis-data:
+  postgres-data:
+  rabbitmq-data:
+
+networks:
+  devcart-net:
+    driver: bridge

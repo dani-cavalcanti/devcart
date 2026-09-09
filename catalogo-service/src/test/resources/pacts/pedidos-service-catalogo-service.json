@@ -1,0 +1,87 @@
+{
+  "consumer": {
+    "name": "pedidos-service"
+  },
+  "interactions": [
+    {
+      "description": "busca do produto PROD-1 pelo pedidos-service",
+      "providerStates": [
+        {
+          "name": "produto PROD-1 existe"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/produtos/PROD-1"
+      },
+      "response": {
+        "body": {
+          "descricao": "Layout ABNT2",
+          "estoque": 10,
+          "id": "PROD-1",
+          "nome": "Teclado Mecanico",
+          "preco": 199.9
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "matchingRules": {
+          "body": {
+            "$.descricao": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.estoque": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "integer"
+                }
+              ]
+            },
+            "$.id": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.nome": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.preco": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "decimal"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      }
+    }
+  ],
+  "metadata": {
+    "pact-jvm": {
+      "version": "4.6.14"
+    },
+    "pactSpecification": {
+      "version": "3.0.0"
+    }
+  },
+  "provider": {
+    "name": "catalogo-service"
+  }
+}

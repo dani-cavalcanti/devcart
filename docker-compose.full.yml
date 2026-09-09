@@ -1,0 +1,244 @@
+name: devcart
+
+# ===========================================================================
+# Stack completa: infraestrutura + os 5 microsservicos.
+#   docker compose -f docker-compose.full.yml up -d --build
+#
+# Portas publicadas:
+#   api-gateway ....... 8080      discovery (Eureka) 8761
+#   catalogo-service .. 8081      rabbitmq mgmt ..... 15672 (guest/guest)
+#   carrinho-service .. 8082      zipkin UI ......... 9411
+#   pedidos-service ... 8083
+# ===========================================================================
+
+x-tracing-env: &tracing-env
+  MANAGEMENT_ZIPKIN_TRACING_ENDPOINT: http://zipkin:9411/api/v2/spans
+  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+
+x-jvm-env: &jvm-env
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+
+x-app-healthcheck: &app-healthcheck
+  interval: 15s
+  timeout: 5s
+  retries: 15
+  start_period: 45s
+
+services:
+
+  # --------------------------------------------------------------- infra ----
+  mongodb:
+    image: mongo:7
+    container_name: devcart-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: catalogo
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [devcart-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: devcart-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [devcart-net]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: devcart-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: pedidos
+      POSTGRES_USER: pedidos
+      POSTGRES_PASSWORD: pedidos
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pedidos -d pedidos"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [devcart-net]
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: devcart-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [devcart-net]
+
+  zipkin:
+    image: openzipkin/zipkin:3
+    container_name: devcart-zipkin
+    ports:
+      - "9411:9411"
+    environment:
+      STORAGE_TYPE: mem
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9411/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [devcart-net]
+
+  # ----------------------------------------------------- microsservicos ----
+  discovery-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: discovery-server
+    image: devcart/discovery-server:latest
+    container_name: devcart-discovery-server
+    ports:
+      - "8761:8761"
+    environment:
+      <<: [*tracing-env, *jvm-env]
+    depends_on:
+      zipkin:
+        condition: service_started
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8761/actuator/health"]
+    networks: [devcart-net]
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: api-gateway
+    image: devcart/api-gateway:latest
+    container_name: devcart-api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      <<: [*tracing-env, *jvm-env]
+      EUREKA_URI: http://discovery-server:8761/eureka/
+      # HS256, >= 32 bytes. Defina no ambiente (ou em um .env local); ver .env.example.
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET (HS256, >= 32 bytes)}
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/actuator/health"]
+    networks: [devcart-net]
+
+  catalogo-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: catalogo-service
+    image: devcart/catalogo-service:latest
+    container_name: devcart-catalogo-service
+    ports:
+      - "8081:8081"
+    environment:
+      <<: [*tracing-env, *jvm-env]
+      EUREKA_URI: http://discovery-server:8761/eureka/
+      MONGODB_URI: mongodb://mongodb:27017/catalogo
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8081/actuator/health"]
+    networks: [devcart-net]
+
+  carrinho-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: carrinho-service
+    image: devcart/carrinho-service:latest
+    container_name: devcart-carrinho-service
+    ports:
+      - "8082:8082"
+    environment:
+      <<: [*tracing-env, *jvm-env]
+      EUREKA_URI: http://discovery-server:8761/eureka/
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/actuator/health"]
+    networks: [devcart-net]
+
+  pedidos-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: pedidos-service
+    image: devcart/pedidos-service:latest
+    container_name: devcart-pedidos-service
+    ports:
+      - "8083:8083"
+    environment:
+      <<: [*tracing-env, *jvm-env]
+      EUREKA_URI: http://discovery-server:8761/eureka/
+      POSTGRES_URL: jdbc:postgresql://postgres:5432/pedidos
+      POSTGRES_USER: pedidos
+      POSTGRES_PASSWORD: pedidos
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      <<: *app-healthcheck
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8083/actuator/health"]
+    networks: [devcart-net]
+
+volumes:
+  mongo-data:
+  redis-data:
+  postgres-data:
+  rabbitmq-data:
+
+networks:
+  devcart-net:
+    driver: bridge

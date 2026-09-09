@@ -1,0 +1,76 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    # Boot 3.4.x + Spring Cloud 2023.0.x fora da matriz oficialmente testada (assumido).
+    compatibility-verifier:
+      enabled: false
+    loadbalancer:
+      enabled: true
+    gateway:
+      # Apenas rotas explicitas; sem auto-rota por service-id do Eureka.
+      discovery:
+        locator:
+          enabled: false
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials RETAIN_UNIQUE
+      routes:
+        - id: catalogo-service
+          uri: lb://catalogo-service
+          predicates:
+            - Path=/api/catalogo/**
+          filters:
+            - StripPrefix=2
+
+        # carrinho/pedidos: controller ja mapeia em /carrinho e /pedidos,
+        # entao removemos apenas o prefixo /api (StripPrefix=1).
+        - id: carrinho-service
+          uri: lb://carrinho-service
+          predicates:
+            - Path=/api/carrinho/**
+          filters:
+            - StripPrefix=1
+
+        - id: pedidos-service
+          uri: lb://pedidos-service
+          predicates:
+            - Path=/api/pedidos/**
+          filters:
+            - StripPrefix=1
+
+# Validacao/mapeamento do JWT feito pelo gateway (ver SecurityConfig / JwtProperties).
+security:
+  jwt:
+    # HS256 - minimo 32 bytes. Obrigatorio: defina a variavel de ambiente JWT_SECRET
+    # (sem default no repositorio). Ver .env.example.
+    secret: ${JWT_SECRET}
+    user-id-claim: sub
+    roles-claim: roles
+    issuer: ${JWT_ISSUER:}
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka/}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: when_authorized
+  # Micrometer Observation + Micrometer Tracing (bridge Brave) -> Zipkin
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${MANAGEMENT_ZIPKIN_TRACING_ENDPOINT:http://localhost:9411/api/v2/spans}
