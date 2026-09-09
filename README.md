@@ -209,16 +209,28 @@ mvn -pl api-gateway      spring-boot:run
 Os defaults dos `application.yml` (`localhost:27017/6379/5432/5672/9411`, Eureka em `:8761`) já batem
 com esse compose. **`JWT_SECRET` não tem valor default no repositório** — o gateway exige a variável.
 
-### Exemplo de fluxo (via gateway)
+### Autenticação — gerar um JWT
 
-Toda chamada passa pelo gateway e exige `Authorization: Bearer <JWT HS256>` assinado com o mesmo
-segredo de `security.jwt.secret`. O gateway extrai a claim `sub` e injeta `X-User-Id` internamente —
-o cliente **não** envia esse header.
+Toda rota `/api/**` no gateway exige `Authorization: Bearer <JWT HS256>` **assinado com o
+`JWT_SECRET` do seu `.env`**. Sem o header (ou com token de outro segredo / expirado) → `401`.
+Liberadas apenas `OPTIONS` e `/actuator/health|info`. O gateway extrai a claim `sub` e injeta
+`X-User-Id` internamente — o cliente **não** envia esse header.
+
+O helper **`./mint-jwt.sh`** (raiz do repo) gera um token válido assinado com o `.env`:
 
 ```bash
-TOKEN="eyJhbGciOiJIUzI1NiJ9..."          # JWT com claim "sub": "user-123"
+export TOKEN=$(./mint-jwt.sh)          # sub=user-123, validade 24h
+./mint-jwt.sh maria 1                  # sub=maria, validade 1h
+```
 
-# 1. cadastra um produto
+> Precisa de `python3` (só a stdlib). O script lê `JWT_SECRET` de `.env` — nenhum segredo embutido.
+
+### Exemplo de fluxo (via gateway)
+
+```bash
+export TOKEN=$(./mint-jwt.sh)
+
+# 1. cadastra um produto  → guarde o "id" retornado
 curl -s -X POST http://localhost:8080/api/catalogo/produtos \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"nome":"Caneca DevCart","descricao":"350ml","preco":49.90,"estoque":10}'
@@ -228,10 +240,12 @@ curl -s -X POST http://localhost:8080/api/carrinho/itens \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"produtoId":"<id>","nome":"Caneca DevCart","quantidade":2,"precoUnitario":49.90}'
 
-# 3. fecha o pedido (consulta catálogo via Feign + publica evento em pedidos.criados)
+# 3. fecha o pedido — o preço e o nome vêm do catálogo via Feign (não do payload);
+#    publica PedidoCriadoEvent em pedidos.criados após o commit
 curl -s -X POST http://localhost:8080/api/pedidos \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"itens":[{"produtoId":"<id>","quantidade":2}]}'
+#    → { "id": 1, "status": "CRIADO", "valorTotal": 99.80, "itens": [...] }
 ```
 
 ---
@@ -676,6 +690,7 @@ devcart/
 ├── pom.xml                     # POM pai: multi-módulo, deps de observabilidade, JaCoCo, Sonar,
 │                               #          surefire (tags), perfis pbt/contract
 ├── .env.example                # variáveis (copie para .env)
+├── mint-jwt.sh                  # gera um JWT HS256 assinado com o JWT_SECRET do .env
 ├── Dockerfile                  # multi-stage parametrizado (--build-arg MODULE=...)
 ├── docker-compose.yml          # infraestrutura + discovery-server
 ├── docker-compose.full.yml     # infraestrutura + os 5 microsserviços
