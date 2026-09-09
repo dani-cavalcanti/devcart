@@ -11,7 +11,9 @@ build/
 *.tmp
 
 # Local env files
+.env
 *.local.env
+!.env.example
 
 # jqwik failure-replay database (local)
 .jqwik-database

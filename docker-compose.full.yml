@@ -142,7 +142,8 @@ services:
     environment:
       <<: [*tracing-env, *jvm-env]
       EUREKA_URI: http://discovery-server:8761/eureka/
-      JWT_SECRET: devcart-dev-jwt-secret-please-change-in-production-0123456789
+      # HS256, >= 32 bytes. Defina no ambiente (ou em um .env local); ver .env.example.
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET (HS256, >= 32 bytes)}
     depends_on:
       discovery-server:
         condition: service_healthy

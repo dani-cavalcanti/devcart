@@ -45,8 +45,9 @@ spring:
 # Validacao/mapeamento do JWT feito pelo gateway (ver SecurityConfig / JwtProperties).
 security:
   jwt:
-    # HS256 - minimo 32 bytes. SUBSTITUA em producao (ex.: variavel de ambiente JWT_SECRET).
-    secret: ${JWT_SECRET:troque-este-segredo-de-desenvolvimento-com-no-minimo-32-bytes}
+    # HS256 - minimo 32 bytes. Obrigatorio: defina a variavel de ambiente JWT_SECRET
+    # (sem default no repositorio). Ver .env.example.
+    secret: ${JWT_SECRET}
     user-id-claim: sub
     roles-claim: roles
     issuer: ${JWT_ISSUER:}
